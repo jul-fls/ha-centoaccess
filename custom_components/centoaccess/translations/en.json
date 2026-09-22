@@ -1,0 +1,69 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "CentoAccess",
+        "description": "Choose a location. The Home Assistant location is selected by default. The commune must use CentoAccess.",
+        "data": {"location_source": "Location method"}
+      },
+      "gps": {
+        "title": "GPS coordinates",
+        "data": {"latitude": "Latitude", "longitude": "Longitude"}
+      },
+      "postal_commune": {
+        "title": "Search by postal code",
+        "description": "Enter the first 2 to 5 digits of a postal code, then choose a commune on the next screen.",
+        "data": {"postal_code": "Postal code prefix"}
+      },
+      "postal_select": {
+        "title": "Choose a commune",
+        "data": {"postal_choice": "Postal code and commune"}
+      },
+      "address": {
+        "title": "Full address",
+        "data": {"address": "Address, postal code and commune"}
+      },
+      "insee": {
+        "title": "INSEE code",
+        "data": {"insee_code": "Commune INSEE code"}
+      },
+      "cento_select": {
+        "title": "Choose a CentoAccess application",
+        "description": "Several CentoAccess applications match this commune.",
+        "data": {"application_id": "CentoAccess application"}
+      }
+    },
+    "error": {
+      "invalid_location": "No reliable French commune match was found.",
+      "invalid_postal_prefix": "Enter 2 to 5 postal code digits.",
+      "ambiguous_location": "Several communes match. Enter a more precise address.",
+      "cannot_connect": "Cannot reach the geographic or CentoAccess service.",
+      "not_centoaccess": "This commune does not use CentoAccess, so this integration cannot be set up for it."
+    },
+    "abort": {
+      "already_configured": "This CentoAccess commune is already configured.",
+      "invalid_location": "The selected commune or CentoAccess application is no longer available."
+    }
+  },
+  "selector": {
+    "location_source": {
+      "options": {
+        "home": "Home Assistant location",
+        "gps": "GPS coordinates",
+        "postal_commune": "Postal code and commune",
+        "address": "Full address",
+        "insee": "INSEE code"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "commune": {"name": "Commune"},
+      "slides": {"name": "Display slides"},
+      "agenda": {"name": "Agenda entries"},
+      "news": {"name": "News"},
+      "useful_info": {"name": "Useful information"}
+    },
+    "calendar": {"agenda": {"name": "Agenda"}}
+  }
+}

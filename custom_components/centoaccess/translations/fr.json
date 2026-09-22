@@ -1,0 +1,69 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "CentoAccess",
+        "description": "Choisissez un lieu. La position de Home Assistant est sélectionnée par défaut. La commune doit utiliser CentoAccess.",
+        "data": {"location_source": "Méthode de localisation"}
+      },
+      "gps": {
+        "title": "Coordonnées GPS",
+        "data": {"latitude": "Latitude", "longitude": "Longitude"}
+      },
+      "postal_commune": {
+        "title": "Recherche par code postal",
+        "description": "Saisissez les 2 à 5 premiers chiffres d'un code postal, puis choisissez une commune à l'étape suivante.",
+        "data": {"postal_code": "Préfixe du code postal"}
+      },
+      "postal_select": {
+        "title": "Choisir une commune",
+        "data": {"postal_choice": "Code postal et commune"}
+      },
+      "address": {
+        "title": "Adresse complète",
+        "data": {"address": "Adresse, code postal et commune"}
+      },
+      "insee": {
+        "title": "Code INSEE",
+        "data": {"insee_code": "Code INSEE de la commune"}
+      },
+      "cento_select": {
+        "title": "Choisir une application CentoAccess",
+        "description": "Plusieurs applications CentoAccess correspondent à cette commune.",
+        "data": {"application_id": "Application CentoAccess"}
+      }
+    },
+    "error": {
+      "invalid_location": "Aucune commune française fiable n'a été trouvée.",
+      "invalid_postal_prefix": "Saisissez 2 à 5 chiffres de code postal.",
+      "ambiguous_location": "Plusieurs communes correspondent. Saisissez une adresse plus précise.",
+      "cannot_connect": "Impossible de joindre le service géographique ou CentoAccess.",
+      "not_centoaccess": "Cette commune n'utilise pas CentoAccess. Cette intégration ne peut donc pas être configurée pour cette commune."
+    },
+    "abort": {
+      "already_configured": "Cette commune CentoAccess est déjà configurée.",
+      "invalid_location": "La commune ou l'application CentoAccess sélectionnée n'est plus disponible."
+    }
+  },
+  "selector": {
+    "location_source": {
+      "options": {
+        "home": "Position de Home Assistant",
+        "gps": "Coordonnées GPS",
+        "postal_commune": "Code postal et commune",
+        "address": "Adresse complète",
+        "insee": "Code INSEE"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "commune": {"name": "Commune"},
+      "slides": {"name": "Diapositives du panneau"},
+      "agenda": {"name": "Éléments de l'agenda"},
+      "news": {"name": "Actualités"},
+      "useful_info": {"name": "Informations pratiques"}
+    },
+    "calendar": {"agenda": {"name": "Agenda"}}
+  }
+}
