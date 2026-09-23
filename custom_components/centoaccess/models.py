@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, time
 from typing import Any, cast
 
 from .const import BASE_URL
@@ -97,6 +97,21 @@ def _parse_datetime(value: object) -> datetime | None:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
+
+
+def parse_local_time(value: object) -> time | None:
+    """Parse an API time and discard its source timezone for local display."""
+    if not isinstance(value, str) or not value:
+        return None
+    normalized = value.replace("Z", "+00:00")
+    try:
+        parsed = time.fromisoformat(normalized)
+    except ValueError:
+        try:
+            parsed = datetime.fromisoformat(normalized).timetz()
+        except ValueError:
+            return None
+    return parsed.replace(tzinfo=None)
 
 
 def publication_datetime(item: JsonObject) -> datetime | None:

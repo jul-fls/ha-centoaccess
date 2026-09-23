@@ -23,6 +23,7 @@ from .models import (
     as_object,
     object_list,
     panel_slides,
+    parse_local_time,
     publication_datetime,
 )
 
@@ -94,8 +95,8 @@ def _agenda_event(item: JsonObject) -> CalendarEvent | None:
     description = str(item.get("description") or item.get("content") or "")
     location = _location(item)
 
-    start_time = _parse_time(item.get("timeStart") or item.get("startTime"))
-    end_time = _parse_time(item.get("timeEnd") or item.get("endTime"))
+    start_time = parse_local_time(item.get("timeStart") or item.get("startTime"))
+    end_time = parse_local_time(item.get("timeEnd") or item.get("endTime"))
     return _dated_event(
         summary,
         description,
@@ -151,8 +152,8 @@ def _slide_events(
                 absolute_url(panel_url),
                 start_date,
                 end_date,
-                _parse_time(slot.get("time_start")),
-                _parse_time(slot.get("time_end")),
+                parse_local_time(slot.get("time_start")),
+                parse_local_time(slot.get("time_end")),
             )
         )
     return events
@@ -211,16 +212,6 @@ def _parse_date(value: Any) -> date | None:
         return date.fromisoformat(str(value)[:10])
     except ValueError:
         return None
-
-
-def _parse_time(value: Any) -> time | None:
-    if not value:
-        return None
-    try:
-        return time.fromisoformat(str(value).replace("Z", "+00:00"))
-    except ValueError:
-        parsed = dt_util.parse_datetime(str(value))
-        return parsed.timetz() if parsed else None
 
 
 def _location(item: JsonObject) -> str | None:

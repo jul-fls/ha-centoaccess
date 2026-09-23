@@ -18,6 +18,7 @@ absolute_url = models.absolute_url
 information_summary = models.information_summary
 information_status = models.information_status
 panel_slides = models.panel_slides
+parse_local_time = models.parse_local_time
 slide_status = models.slide_status
 
 
@@ -88,6 +89,15 @@ class ModelTests(unittest.TestCase):
         }
         now = datetime(2026, 6, 1, tzinfo=timezone.utc)
         self.assertEqual(slide_status(slide, now), "scheduled")
+
+    def test_api_times_are_normalized_for_home_assistant_timezone(self):
+        self.assertIsNone(parse_local_time(None))
+        self.assertEqual(str(parse_local_time("08:30:00Z")), "08:30:00")
+        self.assertEqual(
+            str(parse_local_time("2026-09-23T18:45:00+02:00")),
+            "18:45:00",
+        )
+        self.assertIsNone(parse_local_time("not-a-time"))
 
 
 if __name__ == "__main__":
