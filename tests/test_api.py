@@ -1,9 +1,12 @@
 """Focused checks for the CentoAccess API client."""
 
+from __future__ import annotations
+
 import importlib
 from pathlib import Path
 import sys
 from types import ModuleType
+from typing import cast
 import unittest
 
 
@@ -12,47 +15,51 @@ package = ModuleType("centoaccess")
 package.__path__ = [str(COMPONENT)]
 sys.modules["centoaccess"] = package
 aiohttp_stub = ModuleType("aiohttp")
-aiohttp_stub.ClientSession = object
+setattr(aiohttp_stub, "ClientSession", object)
 sys.modules["aiohttp"] = aiohttp_stub
 api = importlib.import_module("centoaccess.api")
 
 
 class FakeResponse:
-    def __init__(self, data=None, *, text="", status=200):
+    def __init__(
+        self, data: object = None, *, text: str = "", status: int = 200
+    ) -> None:
         self.data = data
         self.body = text
         self.status = status
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> FakeResponse:
         return self
 
-    async def __aexit__(self, *_):
+    async def __aexit__(self, *_: object) -> bool:
         return False
 
-    def raise_for_status(self):
+    def raise_for_status(self) -> None:
         if self.status >= 400:
             raise RuntimeError(self.status)
 
-    async def json(self, content_type=None):
+    async def json(self, content_type: object = None) -> object:
         return self.data
 
-    async def text(self):
+    async def text(self) -> str:
         return self.body
 
 
 class FakeSession:
-    def __init__(self, *responses):
+    def __init__(self, *responses: FakeResponse) -> None:
         self.responses = list(responses)
-        self.calls = []
+        self.calls: list[tuple[str, str, dict[str, object]]] = []
 
-    def _next(self, method, url, **kwargs):
+    def _next(
+        self, method: str, url: str, **kwargs: object
+    ) -> FakeResponse:
         self.calls.append((method, url, kwargs))
         return self.responses.pop(0)
 
-    def post(self, url, **kwargs):
+    def post(self, url: str, **kwargs: object) -> FakeResponse:
         return self._next("POST", url, **kwargs)
 
-    def get(self, url, **kwargs):
+    def get(self, url: str, **kwargs: object) -> FakeResponse:
         return self._next("GET", url, **kwargs)
 
 
@@ -96,7 +103,10 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(data.news), 1)
         self.assertEqual(len(data.useful_info), 1)
         self.assertEqual(data.panel_data["messages"][0]["id"], 5)
-        authorization = session.calls[-1][2]["headers"]["Authorization"]
+        headers = session.calls[-1][2]["headers"]
+        self.assertIsInstance(headers, dict)
+        authorization = cast(dict[str, str], headers)["Authorization"]
+        self.assertIsInstance(authorization, str)
         self.assertIn("Bearer panel-jwt", authorization)
 
     async def test_fetch_without_panel_still_returns_commune_data(self):

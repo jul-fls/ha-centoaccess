@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 import re
-from typing import Any
+from typing import Any, TypeVar
 
 import aiohttp
 import voluptuous as vol
@@ -13,7 +14,7 @@ from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     SelectOptionDict,
-    SelectSelector,
+    SelectSelector,  # pyright: ignore[reportUnknownVariableType]
     SelectSelectorConfig,
     SelectSelectorMode,
 )
@@ -40,12 +41,15 @@ from .location import (
     from_coordinates,
     from_insee,
     from_postal_choice,
+    filter_postal_choices,
     matching_applications,
     search_postal_prefix,
 )
 
 CONF_POSTAL_CHOICE = "postal_choice"
 CONF_ADDRESS = "address"
+ResolveT = TypeVar("ResolveT")
+FlowInput = dict[str, Any]
 
 
 class CentoAccessConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -57,11 +61,12 @@ class CentoAccessConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Initialize transient setup state."""
         self._location: Location | None = None
         self._applications: dict[str, dict[str, Any]] = {}
+        self._postal_choices: dict[str, PostalChoice] = {}
 
     def _session(self) -> aiohttp.ClientSession:
         return async_get_clientsession(self.hass)
 
-    async def _resolve(self, operation):
+    async def _resolve(self, operation: Awaitable[ResolveT]) -> ResolveT | str:
         try:
             return await operation
         except InvalidLocation:
@@ -73,7 +78,9 @@ class CentoAccessConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         except (KeyError, TypeError, ValueError):
             return "invalid_location"
 
-    async def _find_centoaccess(self, location: Location):
+    async def _find_centoaccess(
+        self, location: Location
+    ) -> ConfigFlowResult | str:
         """Find the exact CentoAccess application for an official commune."""
         client = CentoAccessClient(self._session())
         try:
@@ -86,8 +93,7 @@ class CentoAccessConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return "cannot_connect"
 
         applications = {
-            str(application["id"]): application
-            for application in matches
+            str(application["id"]): application for application in matches
         }
         if not applications:
             return "not_centoaccess"
@@ -121,11 +127,13 @@ class CentoAccessConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data[CONF_LONGITUDE] = location.longitude
         return self.async_create_entry(title=name, data=data)
 
-    async def async_step_user(self, user_input=None):
+    async def async_step_user(
+        self, user_input: FlowInput | None = None
+    ) -> ConfigFlowResult:
         """Choose how the commune should be located."""
-        errors = {}
+        errors: dict[str, str] = {}
         if user_input is not None:
-            mode = user_input[CONF_LOCATION_SOURCE]
+            mode = str(user_input[CONF_LOCATION_SOURCE])
             if mode == "home":
                 result = await self._resolve(
                     from_coordinates(
@@ -143,7 +151,9 @@ class CentoAccessConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 else:
                     errors["base"] = result
             else:
-                steps = {
+                steps: dict[
+                    str, Callable[[], Awaitable[ConfigFlowResult]]
+                ] = {
                     "gps": self.async_step_gps,
                     "postal_commune": self.async_step_postal_commune,
                     "address": self.async_step_address,
@@ -173,15 +183,17 @@ class CentoAccessConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_gps(self, user_input=None):
+    async def async_step_gps(
+        self, user_input: FlowInput | None = None
+    ) -> ConfigFlowResult:
         """Resolve manually entered GPS coordinates."""
-        errors = {}
+        errors: dict[str, str] = {}
         if user_input is not None:
             result = await self._resolve(
                 from_coordinates(
                     self._session(),
-                    user_input[CONF_LATITUDE],
-                    user_input[CONF_LONGITUDE],
+                    float(user_input[CONF_LATITUDE]),
+                    float(user_input[CONF_LONGITUDE]),
                 )
             )
             if isinstance(result, Location):
@@ -206,11 +218,13 @@ class CentoAccessConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_postal_commune(self, user_input=None):
+    async def async_step_postal_commune(
+        self, user_input: FlowInput | None = None
+    ) -> ConfigFlowResult:
         """Search official communes by a two-to-five digit postal prefix."""
-        errors = {}
+        errors: dict[str, str] = {}
         if user_input is not None:
-            prefix = user_input[CONF_POSTAL_CODE].strip()
+            prefix = str(user_input[CONF_POSTAL_CODE]).strip()
             if not re.fullmatch(r"\d{2,5}", prefix):
                 errors[CONF_POSTAL_CODE] = "invalid_postal_prefix"
             else:
@@ -218,25 +232,38 @@ class CentoAccessConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     search_postal_prefix(self._session(), prefix)
                 )
                 if isinstance(result, list):
-                    self._postal_choices: dict[str, PostalChoice] = {
-                        choice.value: choice for choice in result
-                    }
-                    return await self.async_step_postal_select()
-                errors["base"] = result
+                    try:
+                        applications = await CentoAccessClient(
+                            self._session()
+                        ).search_applications(prefix)
+                    except (CentoAccessError, aiohttp.ClientError, TimeoutError):
+                        errors["base"] = "cannot_connect"
+                    else:
+                        filtered = filter_postal_choices(result, applications)
+                        if filtered:
+                            self._postal_choices = {
+                                choice.value: choice for choice in filtered
+                            }
+                            return await self.async_step_postal_select()
+                        errors["base"] = "not_centoaccess"
+                else:
+                    errors["base"] = result
         return self.async_show_form(
             step_id="postal_commune",
             data_schema=vol.Schema({vol.Required(CONF_POSTAL_CODE): str}),
             errors=errors,
         )
 
-    async def async_step_postal_select(self, user_input=None):
+    async def async_step_postal_select(
+        self, user_input: FlowInput | None = None
+    ) -> ConfigFlowResult:
         """Select one official commune from postal search results."""
-        choices = getattr(self, "_postal_choices", None)
+        choices = self._postal_choices
         if not choices:
             return await self.async_step_postal_commune()
-        errors = {}
+        errors: dict[str, str] = {}
         if user_input is not None:
-            selected = choices.get(user_input.get(CONF_POSTAL_CHOICE))
+            selected = choices.get(str(user_input.get(CONF_POSTAL_CHOICE, "")))
             if selected is None:
                 errors["base"] = "invalid_location"
             else:
@@ -268,12 +295,14 @@ class CentoAccessConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_address(self, user_input=None):
+    async def async_step_address(
+        self, user_input: FlowInput | None = None
+    ) -> ConfigFlowResult:
         """Resolve a complete address."""
-        errors = {}
+        errors: dict[str, str] = {}
         if user_input is not None:
             result = await self._resolve(
-                from_address(self._session(), user_input[CONF_ADDRESS])
+                from_address(self._session(), str(user_input[CONF_ADDRESS]))
             )
             if isinstance(result, Location):
                 outcome = await self._find_centoaccess(result)
@@ -288,12 +317,14 @@ class CentoAccessConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_insee(self, user_input=None):
+    async def async_step_insee(
+        self, user_input: FlowInput | None = None
+    ) -> ConfigFlowResult:
         """Resolve an INSEE commune code."""
-        errors = {}
+        errors: dict[str, str] = {}
         if user_input is not None:
             result = await self._resolve(
-                from_insee(self._session(), user_input[CONF_INSEE])
+                from_insee(self._session(), str(user_input[CONF_INSEE]))
             )
             if isinstance(result, Location):
                 outcome = await self._find_centoaccess(result)
@@ -308,12 +339,14 @@ class CentoAccessConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_cento_select(self, user_input=None):
+    async def async_step_cento_select(
+        self, user_input: FlowInput | None = None
+    ) -> ConfigFlowResult:
         """Select one application if a commune has multiple CentoAccess apps."""
         if not self._applications:
             return self.async_abort(reason="invalid_location")
         if user_input is not None:
-            return await self._create_entry(user_input[CONF_APPLICATION_ID])
+            return await self._create_entry(str(user_input[CONF_APPLICATION_ID]))
         options = [
             SelectOptionDict(
                 value=application_id,

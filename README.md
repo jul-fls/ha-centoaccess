@@ -18,7 +18,7 @@ Le formulaire propose les mêmes méthodes de localisation que HydroTarif :
 - adresse complète ;
 - code INSEE de la commune.
 
-La localisation est d'abord résolue avec l'[API Découpage administratif](https://geo.api.gouv.fr/decoupage-administratif/communes) ou le [géocodeur IGN](https://cartes.gouv.fr/aide/fr/guides-utilisateur/utiliser-les-services-de-la-geoplateforme/geocodage/). L'intégration cherche ensuite une correspondance exacte dans le catalogue CentoAccess. Les préfixes municipaux tels que « Ville de », « Mairie de » ou « Commune de » sont tolérés, mais une commune voisine utilisant le même code postal n'est jamais sélectionnée automatiquement.
+La localisation est d'abord résolue avec l'[API Découpage administratif](https://geo.api.gouv.fr/decoupage-administratif/communes) ou le [géocodeur IGN](https://cartes.gouv.fr/aide/fr/guides-utilisateur/utiliser-les-services-de-la-geoplateforme/geocodage/). Avant d'afficher la liste, l'intégration la croise avec les résultats CentoAccess correspondant au préfixe saisi : une commune absente de CentoAccess n'apparaît donc jamais dans le menu. Les préfixes municipaux tels que « Ville de », « Mairie de » ou « Commune de » sont tolérés, mais une commune voisine utilisant le même code postal n'est jamais sélectionnée automatiquement.
 
 Si la commune existe mais n'utilise pas CentoAccess, le formulaire indique explicitement que l'intégration ne peut pas être configurée pour cette commune. Le `panel_id` n'est jamais demandé : il est découvert automatiquement depuis les tuiles publiées par la commune.
 
@@ -27,11 +27,16 @@ Exemple vérifié : le préfixe `33`, puis le choix `33640 - Castres-Gironde`, r
 ## Entités
 
 - **Commune** : nom, identifiant CentoAccess, code postal, tuiles publiées et identifiant du panneau.
-- **Diapositives du panneau** : nombre de diapositives actives ; l'attribut `slides` contient les messages dédupliqués, leurs cadres, médias et plages de publication.
-- **Éléments de l'agenda** : nombre d'événements et détails dans l'attribut `items`.
-- **Actualités** : nombre d'actualités et détails dans l'attribut `items`.
-- **Informations pratiques** : nombre de fiches ; fiches et liens associés dans les attributs `items` et `links`.
-- **Agenda** : calendrier Home Assistant natif utilisable dans les tableaux de bord et automatisations.
+- **Diapositives du panneau** : nombre de diapositives actives et identifiants publiés.
+- **Éléments de l'agenda** : nombre d'événements municipaux.
+- **Actualités** : nombre d'actualités et identifiants publiés.
+- **Informations pratiques** : nombre de fiches et identifiants publiés.
+- **Une entité par actualité** : état `scheduled` ou `published`, date de publication, contenu, image, fichiers, liens et coordonnées éventuelles.
+- **Une entité par diapositive** : état `scheduled`, `active`, `inactive` ou `expired`, cadres, médias et plages de diffusion. Les diapositives futures sont conservées.
+- **Une entité par information pratique** : contenu, date de publication, image, adresse, téléphone, courriel, fichiers et liens associés.
+- **Agenda et publications** : calendrier Home Assistant réunissant événements municipaux, publications d'actualités et périodes de diffusion des diapositives.
+
+Les entités de contenu suivent la réponse API : elles sont créées à l'apparition d'un élément et supprimées lorsqu'il n'est plus publié. Leur identifiant unique reste déterministe si le même contenu réapparaît.
 
 Les données sont actualisées toutes les dix minutes. Les URL relatives des images et vidéos sont converties en URL publiques complètes.
 

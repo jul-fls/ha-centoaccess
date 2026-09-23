@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+from typing import cast
 import unicodedata
 
 import aiohttp
 
 from .const import ADDRESS_URL, GEO_URL
+from .models import JsonObject, as_object, object_list
 
 
 class InvalidLocation(Exception):
@@ -79,7 +81,9 @@ def normalize_name(value: str) -> str:
     return " ".join(words)
 
 
-def matching_applications(commune: str, applications: list[dict]) -> list[dict]:
+def matching_applications(
+    commune: str, applications: list[JsonObject]
+) -> list[JsonObject]:
     """Keep only CentoAccess applications matching the official commune."""
     expected = normalize_name(commune)
     return [
@@ -87,6 +91,22 @@ def matching_applications(commune: str, applications: list[dict]) -> list[dict]:
         for application in applications
         if application.get("id")
         and normalize_name(str(application.get("name") or "")) == expected
+    ]
+
+
+def filter_postal_choices(
+    choices: list[PostalChoice], applications: list[JsonObject]
+) -> list[PostalChoice]:
+    """Keep only postal choices represented in CentoAccess search results."""
+    available_names = {
+        normalize_name(str(application.get("name") or ""))
+        for application in applications
+        if application.get("id")
+    }
+    return [
+        choice
+        for choice in choices
+        if normalize_name(choice.commune) in available_names
     ]
 
 
@@ -102,15 +122,15 @@ def _commune_code(code: str) -> str:
 
 
 async def _get_json(
-    session: aiohttp.ClientSession, url: str, params: dict | None = None
-):
+    session: aiohttp.ClientSession, url: str, params: JsonObject | None = None
+) -> object:
     async with session.get(
         url, params=params, timeout=aiohttp.ClientTimeout(total=15)
     ) as response:
         if response.status == 404:
             raise InvalidLocation
         response.raise_for_status()
-        return await response.json()
+        return cast(object, await response.json())
 
 
 async def _canonical_commune(
@@ -122,12 +142,21 @@ async def _canonical_commune(
     data = await _get_json(
         session, f"{GEO_URL}/{code}", {"fields": "nom,code,codesPostaux"}
     )
-    if not isinstance(data, dict) or not data.get("nom") or data.get("code") != code:
+    commune = as_object(data)
+    name = commune.get("nom")
+    if not isinstance(name, str) or commune.get("code") != code:
         raise InvalidLocation
-    postcodes = [
-        item for item in data.get("codesPostaux") or [] if isinstance(item, str)
-    ]
-    return code, data["nom"], postcodes
+    raw_postcodes = commune.get("codesPostaux")
+    postcodes = (
+        [
+            item
+            for item in cast(list[object], raw_postcodes)
+            if isinstance(item, str)
+        ]
+        if isinstance(raw_postcodes, list)
+        else []
+    )
+    return code, name, postcodes
 
 
 async def from_insee(session: aiohttp.ClientSession, code: str) -> Location:
@@ -157,9 +186,13 @@ async def from_coordinates(
         GEO_URL,
         {"lat": latitude, "lon": longitude, "fields": "nom,code"},
     )
-    if not isinstance(results, list) or len(results) != 1:
+    candidates = object_list(results)
+    if len(candidates) != 1:
         raise InvalidLocation
-    code, name, postcodes = await _canonical_commune(session, results[0]["code"])
+    candidate_code = candidates[0].get("code")
+    if not isinstance(candidate_code, str):
+        raise InvalidLocation
+    code, name, postcodes = await _canonical_commune(session, candidate_code)
     label = (
         f"Home Assistant ({name})"
         if source == "home"
@@ -191,14 +224,22 @@ async def search_postal_prefix(
     if not isinstance(results, list):
         raise InvalidLocation
     choices: dict[str, PostalChoice] = {}
-    for candidate in results:
+    for candidate in object_list(cast(object, results)):
         code = candidate.get("code", "")
         name = candidate.get("nom", "")
-        for postcode in candidate.get("codesPostaux") or []:
+        raw_postcodes = candidate.get("codesPostaux")
+        postcodes = (
+            cast(list[object], raw_postcodes)
+            if isinstance(raw_postcodes, list)
+            else []
+        )
+        for postcode in postcodes:
             if (
                 isinstance(postcode, str)
                 and postcode.startswith(prefix)
+                and isinstance(code, str)
                 and code
+                and isinstance(name, str)
                 and name
             ):
                 choice = PostalChoice(postcode, code, name)
@@ -238,35 +279,63 @@ async def from_address(session: aiohttp.ClientSession, address: str) -> Location
     result = await _get_json(
         session, ADDRESS_URL, {"q": address, "index": "address", "limit": 5}
     )
-    features = result.get("features", []) if isinstance(result, dict) else []
+    features = object_list(as_object(result).get("features"))
     if not features:
         raise InvalidLocation
     first = features[0]
-    properties = first.get("properties", {})
+    properties = as_object(first.get("properties"))
     score = properties.get("score", 0)
     code = properties.get("citycode", "")
     label = properties.get("label", "")
-    if not isinstance(score, (float, int)) or score < 0.75 or not code or not label:
+    if (
+        not isinstance(score, (float, int))
+        or isinstance(score, bool)
+        or score < 0.75
+        or not isinstance(code, str)
+        or not code
+        or not isinstance(label, str)
+        or not label
+    ):
         raise InvalidLocation
     if re.match(r"^\d+\s", address) and properties.get("type") != "housenumber":
         raise InvalidLocation
     for other in features[1:]:
-        other_properties = other.get("properties", {})
+        other_properties = as_object(other.get("properties"))
+        other_code = other_properties.get("citycode")
+        other_score = other_properties.get("score", 0)
         if (
-            _commune_code(other_properties.get("citycode", ""))
+            isinstance(other_code, str)
+            and isinstance(other_score, (float, int))
+            and not isinstance(other_score, bool)
+            and _commune_code(other_code)
             != _commune_code(code)
-            and other_properties.get("score", 0) >= score - 0.05
+            and other_score >= score - 0.05
         ):
             raise AmbiguousLocation
     code, name, postcodes = await _canonical_commune(session, code)
-    coordinates = first.get("geometry", {}).get("coordinates", [])
+    coordinates_value = as_object(first.get("geometry")).get("coordinates")
+    coordinates = (
+        cast(list[object], coordinates_value)
+        if isinstance(coordinates_value, list)
+        else []
+    )
     longitude, latitude = (
-        (coordinates[0], coordinates[1])
+        (float(coordinates[0]), float(coordinates[1]))
         if len(coordinates) == 2
+        and isinstance(coordinates[0], (float, int))
+        and not isinstance(coordinates[0], bool)
+        and isinstance(coordinates[1], (float, int))
+        and not isinstance(coordinates[1], bool)
         else (None, None)
     )
-    address_id = properties.get("id") or normalize_name(label)
-    postcode = properties.get("postcode") or (postcodes[0] if postcodes else None)
+    raw_address_id = properties.get("id")
+    address_id = str(raw_address_id) if raw_address_id else normalize_name(label)
+    raw_postcode = properties.get("postcode")
+    postcode = (
+        raw_postcode
+        if isinstance(raw_postcode, str)
+        else (postcodes[0] if postcodes else None)
+    )
     return Location(
         code,
         name,

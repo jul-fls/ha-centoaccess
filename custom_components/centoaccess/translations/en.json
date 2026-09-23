@@ -64,6 +64,6 @@
       "news": {"name": "News"},
       "useful_info": {"name": "Useful information"}
     },
-    "calendar": {"agenda": {"name": "Agenda"}}
+    "calendar": {"agenda": {"name": "Agenda and publications"}}
   }
 }

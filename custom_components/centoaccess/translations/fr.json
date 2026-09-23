@@ -64,6 +64,6 @@
       "news": {"name": "Actualités"},
       "useful_info": {"name": "Informations pratiques"}
     },
-    "calendar": {"agenda": {"name": "Agenda"}}
+    "calendar": {"agenda": {"name": "Agenda et publications"}}
   }
 }

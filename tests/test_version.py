@@ -7,6 +7,8 @@ import unittest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_version.py"
 SPEC = importlib.util.spec_from_file_location("check_version", SCRIPT)
+if SPEC is None or SPEC.loader is None:
+    raise RuntimeError(f"Unable to load {SCRIPT}")
 check_version = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(check_version)
 

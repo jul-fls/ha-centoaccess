@@ -5,6 +5,7 @@ import importlib
 from pathlib import Path
 import sys
 from types import ModuleType
+from typing import Any
 import unittest
 
 
@@ -15,7 +16,9 @@ sys.modules["centoaccess"] = package
 models = importlib.import_module("centoaccess.models")
 absolute_url = models.absolute_url
 information_summary = models.information_summary
+information_status = models.information_status
 panel_slides = models.panel_slides
+slide_status = models.slide_status
 
 
 class ModelTests(unittest.TestCase):
@@ -41,13 +44,13 @@ class ModelTests(unittest.TestCase):
         self.assertTrue(summary["image_url"].endswith("/image.jpg"))
 
     def test_panel_slides_are_deduplicated_and_resolve_media(self):
-        message = {
+        message: dict[str, Any] = {
             "id": 10,
             "name": "Marché",
             "currentVersion": {"id": 20},
             "MessagePlaylists": [{"id": 30}],
         }
-        panel = {
+        panel: dict[str, Any] = {
             "messages": [message, message.copy()],
             "message_playlists": [{"id": 30, "enabled": True}],
             "versioned_messages": [{"id": 20, "Frames": [{"id": 40}]}],
@@ -64,6 +67,27 @@ class ModelTests(unittest.TestCase):
         self.assertTrue(slides[0]["active"])
         image_url = slides[0]["frames"][0]["elements"][0]["image_url"]
         self.assertTrue(image_url.endswith("/market.jpg"))
+        self.assertEqual(slides[0]["status"], "active")
+
+    def test_future_news_is_scheduled_but_kept(self):
+        item: dict[str, Any] = {
+            "id": 7,
+            "publishedAt": "2026-12-15T09:00:00+00:00",
+        }
+        now = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        self.assertEqual(information_status(item, now), "scheduled")
+
+    def test_future_slide_is_scheduled(self):
+        slide: dict[str, Any] = {
+            "timeslots": [
+                {
+                    "date_start": "2026-12-15T00:00:00+00:00",
+                    "date_end": "2026-12-20T00:00:00+00:00",
+                }
+            ]
+        }
+        now = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        self.assertEqual(slide_status(slide, now), "scheduled")
 
 
 if __name__ == "__main__":

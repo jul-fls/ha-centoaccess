@@ -3,6 +3,7 @@
 import ast
 import json
 from pathlib import Path
+from typing import cast
 import unittest
 
 
@@ -27,22 +28,32 @@ class SensorNameTests(unittest.TestCase):
             and node.value.value is True
             for node in sensor_class.body
         ))
-        keys = [
-            keyword.value.value
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "CentoAccessSensorDescription"
-            for keyword in node.keywords
-            if keyword.arg == "translation_key"
-        ]
+        keys: list[str] = []
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "CentoAccessSensorDescription"
+            ):
+                continue
+            for keyword in node.keywords:
+                if (
+                    keyword.arg == "translation_key"
+                    and isinstance(keyword.value, ast.Constant)
+                    and isinstance(keyword.value.value, str)
+                ):
+                    keys.append(keyword.value.value)
         self.assertEqual(len(keys), 5)
         for language in ("fr", "en"):
-            translations = json.loads(
-                (COMPONENT / "translations" / f"{language}.json").read_text(
-                    encoding="utf-8"
-                )
-            )["entity"]["sensor"]
+            catalog = cast(
+                dict[str, dict[str, dict[str, dict[str, str]]]],
+                json.loads(
+                    (COMPONENT / "translations" / f"{language}.json").read_text(
+                        encoding="utf-8"
+                    )
+                ),
+            )
+            translations = catalog["entity"]["sensor"]
             names = [translations[key]["name"] for key in keys]
             self.assertEqual(len(set(names)), len(keys))
             self.assertTrue(all(names))

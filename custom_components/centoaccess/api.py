@@ -5,11 +5,11 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 import re
-from typing import Any
-
+from typing import cast
 from aiohttp import ClientSession
 
 from .const import API_PASSWORD, API_USERNAME, BASE_URL
+from .models import JsonObject, as_object, object_list
 
 PANEL_ID_RE = re.compile(r"/panel/panel_web/(\d+)")
 PANEL_TOKEN_RE = re.compile(r'data-token="([^"]+)"')
@@ -23,15 +23,15 @@ class CentoAccessError(Exception):
 class CommuneData:
     """All data published for one CentoAccess application."""
 
-    application: dict[str, Any]
-    tiles: list[dict[str, Any]]
-    events: list[dict[str, Any]]
-    news: list[dict[str, Any]]
-    useful_info: list[dict[str, Any]]
-    useful_info_links: list[dict[str, Any]]
+    application: JsonObject
+    tiles: list[JsonObject]
+    events: list[JsonObject]
+    news: list[JsonObject]
+    useful_info: list[JsonObject]
+    useful_info_links: list[JsonObject]
     panel_id: str | None
     panel_url: str | None
-    panel_data: dict[str, Any]
+    panel_data: JsonObject
 
     @property
     def application_id(self) -> int:
@@ -64,8 +64,8 @@ class CentoAccessClient:
             headers={"Accept": "application/json"},
         ) as response:
             response.raise_for_status()
-            payload = await response.json(content_type=None)
-        token = payload.get("token") if isinstance(payload, dict) else None
+            payload = as_object(await response.json(content_type=None))
+        token = payload.get("token")
         if not token:
             raise CentoAccessError("Authentication response contains no token")
         self._token = str(token)
@@ -73,10 +73,10 @@ class CentoAccessClient:
     async def _get_json(
         self,
         path: str,
-        params: dict[str, Any] | None = None,
+        params: JsonObject | None = None,
         *,
         retry_auth: bool = True,
-    ) -> Any:
+    ) -> object:
         if not self._token:
             await self._authenticate()
         headers = {
@@ -92,23 +92,24 @@ class CentoAccessClient:
             response.raise_for_status()
             return await response.json(content_type=None)
 
-    async def search_applications(self, query: str) -> list[dict[str, Any]]:
+    async def search_applications(self, query: str) -> list[JsonObject]:
         """Find CentoAccess communes by postal code or name."""
         data = await self._get_json(
             "/applications", {"key": query, "order[name]": "ASC"}
         )
         if not isinstance(data, list):
             raise CentoAccessError("Application search response is not a list")
-        return [item for item in data if isinstance(item, dict) and item.get("id")]
+        return [item for item in object_list(cast(object, data)) if item.get("id")]
 
-    async def get_application(self, application_id: int) -> dict[str, Any]:
+    async def get_application(self, application_id: int) -> JsonObject:
         """Fetch one CentoAccess application."""
         data = await self._get_json(f"/applications/{application_id}")
-        if not isinstance(data, dict) or not data.get("id"):
+        application = as_object(data)
+        if not application.get("id"):
             raise CentoAccessError("Application response is invalid")
-        return data
+        return application
 
-    async def _get_public_panel(self, panel_id: str) -> dict[str, Any]:
+    async def _get_public_panel(self, panel_id: str) -> JsonObject:
         panel_url = f"{self.base_url}/panel/panel_web/{panel_id}"
         async with self.session.get(panel_url) as response:
             response.raise_for_status()
@@ -127,7 +128,7 @@ class CentoAccessClient:
             data = await response.json(content_type=None)
         if not isinstance(data, dict):
             raise CentoAccessError("Public panel response is invalid")
-        return data
+        return as_object(cast(object, data))
 
     async def fetch(self, application_id: int) -> CommuneData:
         """Fetch all mobile-app information for one commune."""
@@ -150,23 +151,30 @@ class CentoAccessClient:
         if not all(isinstance(collection, list) for collection in collections):
             raise CentoAccessError("One of the commune collections is invalid")
 
+        tile_items = object_list(tiles)
+        event_items = object_list(events)
+        news_items = object_list(news)
+        useful_info_items = object_list(useful_info)
+        useful_info_link_items = object_list(useful_info_links)
+
         panel_id = None
         panel_url = None
-        for tile in tiles:
-            match = PANEL_ID_RE.search(tile.get("url") or "")
+        for tile in tile_items:
+            url = tile.get("url")
+            match = PANEL_ID_RE.search(url if isinstance(url, str) else "")
             if tile.get("type") == "WebViewTile" and match:
                 panel_id = match.group(1)
-                panel_url = tile.get("url")
+                panel_url = url
                 break
         panel_data = await self._get_public_panel(panel_id) if panel_id else {}
 
         return CommuneData(
             application=application,
-            tiles=tiles,
-            events=events,
-            news=news,
-            useful_info=useful_info,
-            useful_info_links=useful_info_links,
+            tiles=tile_items,
+            events=event_items,
+            news=news_items,
+            useful_info=useful_info_items,
+            useful_info_links=useful_info_link_items,
             panel_id=panel_id,
             panel_url=panel_url,
             panel_data=panel_data,

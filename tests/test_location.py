@@ -1,10 +1,13 @@
 """Tests for French commune resolution and CentoAccess matching."""
 
+from __future__ import annotations
+
 import importlib
 import json
 from pathlib import Path
 import sys
 from types import ModuleType
+from typing import cast
 import unittest
 
 
@@ -16,36 +19,48 @@ if "centoaccess" not in sys.modules:
 if "aiohttp" not in sys.modules:
     sys.modules["aiohttp"] = ModuleType("aiohttp")
 aiohttp_stub = sys.modules["aiohttp"]
-aiohttp_stub.ClientSession = object
-aiohttp_stub.ClientTimeout = lambda total: None
+setattr(aiohttp_stub, "ClientSession", object)
+
+
+class FakeClientTimeout:
+    def __init__(self, *, total: float) -> None:
+        self.total = total
+
+
+setattr(aiohttp_stub, "ClientTimeout", FakeClientTimeout)
 location = importlib.import_module("centoaccess.location")
 
 
 class FakeResponse:
-    def __init__(self, data, status=200):
+    def __init__(self, data: object, status: int = 200) -> None:
         self.data = data
         self.status = status
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> FakeResponse:
         return self
 
-    async def __aexit__(self, *_):
+    async def __aexit__(self, *_: object) -> bool:
         return False
 
-    def raise_for_status(self):
+    def raise_for_status(self) -> None:
         if self.status >= 400:
             raise RuntimeError(self.status)
 
-    async def json(self):
+    async def json(self) -> object:
         return self.data
 
 
 class FakeSession:
-    def __init__(self, *responses):
+    def __init__(self, *responses: object) -> None:
         self.responses = list(responses)
-        self.calls = []
+        self.calls: list[tuple[str, dict[str, object] | None]] = []
 
-    def get(self, url, params=None, timeout=None):
+    def get(
+        self,
+        url: str,
+        params: dict[str, object] | None = None,
+        timeout: object = None,
+    ) -> FakeResponse:
         self.calls.append((url, params))
         return FakeResponse(self.responses.pop(0))
 
@@ -72,11 +87,29 @@ class CommuneMatchingTests(unittest.TestCase):
         )
         self.assertEqual(matches, [])
 
+    def test_postal_dropdown_only_keeps_centoaccess_communes(self):
+        choices = [
+            location.PostalChoice("33000", "33063", "Bordeaux"),
+            location.PostalChoice("33640", "33109", "Castres-Gironde"),
+            location.PostalChoice("33640", "33334", "Portets"),
+            location.PostalChoice("33650", "33474", "Saint-Selve"),
+        ]
+        applications = [
+            {"id": 135, "name": "CASTRES-GIRONDE"},
+            {"id": 5, "name": "Ville de Portets"},
+        ]
+        filtered = location.filter_postal_choices(choices, applications)
+        self.assertEqual(
+            [choice.commune for choice in filtered],
+            ["Castres-Gironde", "Portets"],
+        )
+
     def test_french_error_explains_unsupported_commune(self):
         translations = json.loads(
             (COMPONENT / "translations" / "fr.json").read_text(encoding="utf-8")
         )
-        message = translations["config"]["error"]["not_centoaccess"]
+        catalog = cast(dict[str, dict[str, dict[str, str]]], translations)
+        message = catalog["config"]["error"]["not_centoaccess"]
         self.assertIn("n'utilise pas CentoAccess", message)
         self.assertIn("ne peut donc pas être configurée", message)
 
