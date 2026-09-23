@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from datetime import datetime, time
 from typing import Any, cast
+import unicodedata
 
 from .const import BASE_URL
 
 JsonObject = dict[str, Any]
 Identifier = str | int
+EXCLUDED_SLIDE_NAMES = {"ephemerides", "meteo"}
 
 
 def as_object(value: object) -> JsonObject:
@@ -30,6 +32,40 @@ def _identifier(value: object) -> Identifier | None:
     if isinstance(value, (str, int)) and not isinstance(value, bool):
         return value
     return None
+
+
+def _normalized_slide_name(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    return (
+        unicodedata.normalize("NFKD", value)
+        .encode("ascii", "ignore")
+        .decode()
+        .casefold()
+        .strip()
+    )
+
+
+def _deduplicate_timeslots(timeslots: list[JsonObject]) -> list[JsonObject]:
+    unique: list[JsonObject] = []
+    seen: set[tuple[str, ...]] = set()
+    for slot in timeslots:
+        key = tuple(
+            str(slot.get(field) or "")
+            for field in (
+                "dateStart",
+                "dateEnd",
+                "timeStart",
+                "timeEnd",
+                "enableDays",
+                "type",
+            )
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(slot)
+    return unique
 
 
 def absolute_url(path: str | None) -> str | None:
@@ -208,6 +244,8 @@ def panel_slides(
     slides: list[JsonObject] = []
     seen_message_ids: set[Identifier] = set()
     for message in object_list(panel.get("messages")):
+        if _normalized_slide_name(message.get("name")) in EXCLUDED_SLIDE_NAMES:
+            continue
         message_id = _identifier(message.get("id"))
         if message_id in seen_message_ids:
             continue
@@ -241,12 +279,14 @@ def panel_slides(
                     ],
                 }
             )
-        related_timeslots = [
-            slot
-            for slot in timeslots
-            if _identifier(as_object(slot.get("MessagePlaylist")).get("id"))
-            in playlist_ids
-        ]
+        related_timeslots = _deduplicate_timeslots(
+            [
+                slot
+                for slot in timeslots
+                if _identifier(as_object(slot.get("MessagePlaylist")).get("id"))
+                in playlist_ids
+            ]
+        )
         slide: JsonObject = {
             "id": message_id,
             "name": message.get("name"),

@@ -57,11 +57,18 @@ class ModelTests(unittest.TestCase):
             "versioned_messages": [{"id": 20, "Frames": [{"id": 40}]}],
             "frames": [{"id": 40, "Elements": [{"id": 50}]}],
             "elements": [{"id": 50, "type": "Image", "path": "/market.jpg"}],
-            "timeslots": [{
-                "MessagePlaylist": {"id": 30},
-                "dateStart": "2026-01-01T00:00:00+00:00",
-                "dateEnd": "2026-12-31T00:00:00+00:00",
-            }],
+            "timeslots": [
+                {
+                    "MessagePlaylist": {"id": 30},
+                    "dateStart": "2026-01-01T00:00:00+00:00",
+                    "dateEnd": "2026-12-31T00:00:00+00:00",
+                },
+                {
+                    "MessagePlaylist": {"id": 30},
+                    "dateStart": "2026-01-01T00:00:00+00:00",
+                    "dateEnd": "2026-12-31T00:00:00+00:00",
+                },
+            ],
         }
         slides = panel_slides(panel, datetime(2026, 6, 1, tzinfo=timezone.utc))
         self.assertEqual(len(slides), 1)
@@ -69,6 +76,31 @@ class ModelTests(unittest.TestCase):
         image_url = slides[0]["frames"][0]["elements"][0]["image_url"]
         self.assertTrue(image_url.endswith("/market.jpg"))
         self.assertEqual(slides[0]["status"], "active")
+        self.assertEqual(len(slides[0]["timeslots"]), 1)
+
+    def test_weather_and_ephemerides_slides_are_excluded(self):
+        panel: dict[str, Any] = {
+            "messages": [
+                {
+                    "id": 1,
+                    "name": "Météo",
+                    "MessagePlaylists": [{"id": 10}],
+                },
+                {
+                    "id": 2,
+                    "name": "Éphémérides",
+                    "MessagePlaylists": [{"id": 10}],
+                },
+                {
+                    "id": 3,
+                    "name": "Bibliothèque",
+                    "MessagePlaylists": [{"id": 10}],
+                },
+            ],
+            "message_playlists": [{"id": 10, "enabled": True}],
+        }
+        slides = panel_slides(panel)
+        self.assertEqual([slide["name"] for slide in slides], ["Bibliothèque"])
 
     def test_future_news_is_scheduled_but_kept(self):
         item: dict[str, Any] = {
